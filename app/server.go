@@ -79,55 +79,57 @@ func main() {
 }
 
 func handleRequest(conn net.Conn) {
-	request := make([]byte, 1024)
-	n, err := conn.Read(request)
+	defer conn.Close()
 
-	if err != nil {
-		fmt.Println("Error reading from connection: ", err.Error())
+	for {
+		request := make([]byte, 1024)
+		n, err := conn.Read(request)
+
+		if err != nil {
+			fmt.Println("Error reading from connection: ", err.Error())
+		}
+		if n < 12 {
+			fmt.Println("Request too short")
+		}
+
+		var header Request
+
+		header.request_api_version = int16(binary.BigEndian.Uint16(request[6:8]))
+		header.correlation_id = int32(binary.BigEndian.Uint32(request[8:12]))
+
+		var errorCode int16 = 0
+		if !slices.Contains(supportedApiVersions, header.request_api_version) {
+			errorCode = 35 // UNSUPPORTED_VERSION
+		}
+
+		response := Response{
+			message_size:   19,
+			correlation_id: header.correlation_id,
+			error_code:     errorCode,
+		}
+
+		responseBytes := response.serialize()
+
+		_, err = conn.Write(responseBytes)
+		if err != nil {
+			fmt.Println("Error writing to connection: ", err.Error())
+		}
+
+		apiResponse := APIResponse{
+			num_of_api_keys:  2,
+			api_key:          18,
+			min_version:      0,
+			max_version:      4,
+			tagged_fields:    0,
+			throttle_time_ms: 0,
+			tagged_fields_2:  0,
+		}
+
+		apiResponseBytes := apiResponse.serialize()
+
+		_, err = conn.Write(apiResponseBytes)
+		if err != nil {
+			fmt.Println("Error writing to connection: ", err.Error())
+		}
 	}
-	if n < 12 {
-		fmt.Println("Request too short")
-	}
-
-	var header Request
-
-	header.request_api_version = int16(binary.BigEndian.Uint16(request[6:8]))
-	header.correlation_id = int32(binary.BigEndian.Uint32(request[8:12]))
-
-	var errorCode int16 = 0
-	if !slices.Contains(supportedApiVersions, header.request_api_version) {
-		errorCode = 35 // UNSUPPORTED_VERSION
-	}
-
-	response := Response{
-		message_size:   19,
-		correlation_id: header.correlation_id,
-		error_code:     errorCode,
-	}
-
-	responseBytes := response.serialize()
-
-	_, err = conn.Write(responseBytes)
-	if err != nil {
-		fmt.Println("Error writing to connection: ", err.Error())
-	}
-
-	apiResponse := APIResponse{
-		num_of_api_keys:  2,
-		api_key:          18,
-		min_version:      0,
-		max_version:      4,
-		tagged_fields:    0,
-		throttle_time_ms: 0,
-		tagged_fields_2:  0,
-	}
-
-	apiResponseBytes := apiResponse.serialize()
-
-	_, err = conn.Write(apiResponseBytes)
-	if err != nil {
-		fmt.Println("Error writing to connection: ", err.Error())
-	}
-
-	conn.Close()
 }
