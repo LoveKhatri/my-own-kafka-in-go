@@ -8,13 +8,31 @@ import (
 	"slices"
 )
 
+var supportedApiVersions = []int16{0, 1, 2, 3, 4}
+
+type Request struct {
+	// message_size        int32
+	// request_api_key     int16
+	request_api_version int16
+	correlation_id      int32
+	// client_id           string
+}
+
 type Response struct {
 	message_size   int32
 	correlation_id int32
 	error_code     int16
 }
 
-var supportedApiVersions = []int16{0, 1, 2, 3, 4}
+type APIResponse struct {
+	num_of_api_keys  int8
+	api_key          int16
+	min_version      int16
+	max_version      int16
+	tagged_fields    byte
+	throttle_time_ms int32
+	tagged_fields_2  byte
+}
 
 func (r *Response) serialize() []byte {
 	bytes := make([]byte, 10)
@@ -22,6 +40,20 @@ func (r *Response) serialize() []byte {
 	binary.BigEndian.PutUint32(bytes[0:4], uint32(r.message_size))
 	binary.BigEndian.PutUint32(bytes[4:8], uint32(r.correlation_id))
 	binary.BigEndian.PutUint16(bytes[8:10], uint16(r.error_code))
+
+	return bytes
+}
+
+func (r *APIResponse) serialize() []byte {
+	bytes := make([]byte, 13)
+
+	bytes[0] = byte(r.num_of_api_keys)
+	binary.BigEndian.PutUint16(bytes[1:3], uint16(r.api_key))
+	binary.BigEndian.PutUint16(bytes[3:5], uint16(r.min_version))
+	binary.BigEndian.PutUint16(bytes[5:7], uint16(r.max_version))
+	bytes[7] = r.tagged_fields
+	binary.BigEndian.PutUint32(bytes[8:12], uint32(r.throttle_time_ms))
+	bytes[12] = r.tagged_fields_2
 
 	return bytes
 }
@@ -68,11 +100,10 @@ func handleRequest(conn net.Conn) {
 	}
 
 	response := Response{
-		message_size:   0,
+		message_size:   19,
 		correlation_id: header.correlation_id,
 		error_code:     errorCode,
 	}
-	// Validate the API version
 
 	responseBytes := response.serialize()
 
@@ -81,13 +112,22 @@ func handleRequest(conn net.Conn) {
 		fmt.Println("Error writing to connection: ", err.Error())
 	}
 
-	conn.Close()
-}
+	apiResponse := APIResponse{
+		num_of_api_keys:  2,
+		api_key:          18,
+		min_version:      0,
+		max_version:      4,
+		tagged_fields:    0,
+		throttle_time_ms: 0,
+		tagged_fields_2:  0,
+	}
 
-type Request struct {
-	message_size        int32
-	request_api_key     int16
-	request_api_version int16
-	correlation_id      int32
-	client_id           string
+	apiResponseBytes := apiResponse.serialize()
+
+	_, err = conn.Write(apiResponseBytes)
+	if err != nil {
+		fmt.Println("Error writing to connection: ", err.Error())
+	}
+
+	conn.Close()
 }
