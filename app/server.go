@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/binary"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"slices"
@@ -84,12 +85,18 @@ func handleRequest(conn net.Conn) {
 	for {
 		request := make([]byte, 1024)
 		n, err := conn.Read(request)
-
 		if err != nil {
+			if err == io.EOF {
+				fmt.Println("Client closed the connection")
+				return
+			}
 			fmt.Println("Error reading from connection: ", err.Error())
+			return
 		}
+
 		if n < 12 {
 			fmt.Println("Request too short")
+			continue
 		}
 
 		var header Request
@@ -112,7 +119,12 @@ func handleRequest(conn net.Conn) {
 
 		_, err = conn.Write(responseBytes)
 		if err != nil {
+			if err == net.ErrClosed || err.Error() == "write: broken pipe" {
+				fmt.Println("Client closed the connection before writing response")
+				return
+			}
 			fmt.Println("Error writing to connection: ", err.Error())
+			return
 		}
 
 		apiResponse := APIResponse{
@@ -129,7 +141,12 @@ func handleRequest(conn net.Conn) {
 
 		_, err = conn.Write(apiResponseBytes)
 		if err != nil {
+			if err == net.ErrClosed || err.Error() == "write: broken pipe" {
+				fmt.Println("Client closed the connection before writing response")
+				return
+			}
 			fmt.Println("Error writing to connection: ", err.Error())
+			return
 		}
 	}
 }
