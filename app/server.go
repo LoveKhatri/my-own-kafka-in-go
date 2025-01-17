@@ -6,55 +6,80 @@ import (
 	"io"
 	"net"
 	"os"
-	"slices"
 )
 
-var supportedApiVersions = []int16{0, 1, 2, 3, 4}
-
 type Request struct {
-	// message_size        int32
-	// request_api_key     int16
+	message_size        int32
+	request_api_key     int16
 	request_api_version int16
 	correlation_id      int32
 	// client_id           string
 }
 
 type Response struct {
-	message_size   int32
 	correlation_id int32
-	error_code     int16
 }
 
 type APIResponse struct {
+	error_code       int16
 	num_of_api_keys  int8
-	api_key          int16
-	min_version      int16
-	max_version      int16
-	tagged_fields    byte
+	apis             []APIInfo
 	throttle_time_ms int32
 	tagged_fields_2  byte
 }
 
-func (r *Response) serialize() []byte {
-	bytes := make([]byte, 10)
+type APIInfo struct {
+	api_key       int16
+	min_version   int16
+	max_version   int16
+	tagged_fields int8
+}
 
-	binary.BigEndian.PutUint32(bytes[0:4], uint32(r.message_size))
+var supportedAPIs = map[int16]APIInfo{
+	18: {18, 0, 4, 0},
+	75: {75, 0, 0, 0},
+}
+
+func (r *Response) serialize(apiRes APIResponse) []byte {
+	bytes := make([]byte, 8)
+	apiResBytes := apiRes.serialize()
+	message_size := 4 + len(apiResBytes)
+
+	binary.BigEndian.PutUint32(bytes[0:4], uint32(message_size))
 	binary.BigEndian.PutUint32(bytes[4:8], uint32(r.correlation_id))
-	binary.BigEndian.PutUint16(bytes[8:10], uint16(r.error_code))
 
-	return bytes
+	finalBytes := append(bytes, apiResBytes...)
+
+	return finalBytes
 }
 
 func (r *APIResponse) serialize() []byte {
-	bytes := make([]byte, 13)
+	// error_code + num_apis + (api entries) + throttle + tags
+	size := 2 + 1 + (7 * len(r.apis)) + 4 + 1
+	fmt.Println("Size: ", size)
 
-	bytes[0] = byte(r.num_of_api_keys)
-	binary.BigEndian.PutUint16(bytes[1:3], uint16(r.api_key))
-	binary.BigEndian.PutUint16(bytes[3:5], uint16(r.min_version))
-	binary.BigEndian.PutUint16(bytes[5:7], uint16(r.max_version))
-	bytes[7] = r.tagged_fields
-	binary.BigEndian.PutUint32(bytes[8:12], uint32(r.throttle_time_ms))
-	bytes[12] = r.tagged_fields_2
+	bytes := make([]byte, size)
+
+	offset := 0
+	binary.BigEndian.PutUint16(bytes[offset:], uint16(r.error_code))
+	offset += 2
+
+	bytes[offset] = byte(r.num_of_api_keys)
+	offset++
+
+	// Serialize each API info
+	for _, api := range r.apis {
+		binary.BigEndian.PutUint16(bytes[offset:], uint16(api.api_key))
+		binary.BigEndian.PutUint16(bytes[offset+2:], uint16(api.min_version))
+		binary.BigEndian.PutUint16(bytes[offset+4:], uint16(api.max_version))
+		bytes[offset+6] = 0
+		offset += 7
+	}
+
+	binary.BigEndian.PutUint32(bytes[offset:], uint32(r.throttle_time_ms))
+	offset += 4
+
+	bytes[offset] = r.tagged_fields_2
 
 	return bytes
 }
@@ -83,8 +108,7 @@ func handleRequest(conn net.Conn) {
 	defer conn.Close()
 
 	for {
-		request := make([]byte, 1024)
-		n, err := conn.Read(request)
+		request, err := readRequest(conn)
 		if err != nil {
 			if err == io.EOF {
 				fmt.Println("Client closed the connection")
@@ -94,28 +118,14 @@ func handleRequest(conn net.Conn) {
 			return
 		}
 
-		if n < 12 {
-			fmt.Println("Request too short")
-			continue
-		}
-
-		var header Request
-
-		header.request_api_version = int16(binary.BigEndian.Uint16(request[6:8]))
-		header.correlation_id = int32(binary.BigEndian.Uint32(request[8:12]))
-
-		var errorCode int16 = 0
-		if !slices.Contains(supportedApiVersions, header.request_api_version) {
-			errorCode = 35 // UNSUPPORTED_VERSION
-		}
-
 		response := Response{
-			message_size:   19,
-			correlation_id: header.correlation_id,
-			error_code:     errorCode,
+			correlation_id: request.correlation_id,
 		}
 
-		responseBytes := response.serialize()
+		apiRes := generateApiResponse(request)
+
+		responseBytes := response.serialize(apiRes)
+		fmt.Println("Response: ", responseBytes)
 
 		_, err = conn.Write(responseBytes)
 		if err != nil {
@@ -126,27 +136,54 @@ func handleRequest(conn net.Conn) {
 			fmt.Println("Error writing to connection: ", err.Error())
 			return
 		}
+	}
+}
 
-		apiResponse := APIResponse{
-			num_of_api_keys:  2,
-			api_key:          18,
-			min_version:      0,
-			max_version:      4,
-			tagged_fields:    0,
-			throttle_time_ms: 0,
-			tagged_fields_2:  0,
+func readRequest(conn net.Conn) (Request, error) {
+	request := make([]byte, 1024)
+	n, err := conn.Read(request)
+	if err != nil {
+		return Request{}, err
+	}
+
+	if n < 12 {
+		return Request{}, fmt.Errorf("Request too short")
+	}
+
+	var header Request
+
+	header.message_size = int32(binary.BigEndian.Uint32(request[0:4]))
+	header.request_api_key = int16(binary.BigEndian.Uint16(request[4:6]))
+	header.request_api_version = int16(binary.BigEndian.Uint16(request[6:8]))
+	header.correlation_id = int32(binary.BigEndian.Uint32(request[8:12]))
+
+	return header, nil
+}
+
+func generateApiResponse(request Request) APIResponse {
+	errorCode := 0
+
+	if request.request_api_key == 18 {
+		if request.request_api_version < 0 || request.request_api_version > 4 {
+			errorCode = 35
 		}
+	}
 
-		apiResponseBytes := apiResponse.serialize()
+	apis := []APIInfo{
+		supportedAPIs[18],
+	}
 
-		_, err = conn.Write(apiResponseBytes)
-		if err != nil {
-			if err == net.ErrClosed || err.Error() == "write: broken pipe" {
-				fmt.Println("Client closed the connection before writing response")
-				return
-			}
-			fmt.Println("Error writing to connection: ", err.Error())
-			return
+	for key, api := range supportedAPIs {
+		if key != 18 {
+			apis = append(apis, api)
 		}
+	}
+
+	return APIResponse{
+		error_code:       int16(errorCode),
+		num_of_api_keys:  int8(len(apis) + 1),
+		apis:             apis,
+		throttle_time_ms: 0,
+		tagged_fields_2:  0,
 	}
 }
