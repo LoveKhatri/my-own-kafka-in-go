@@ -55,8 +55,8 @@ func ParseDescribeTopicPartitionsV0Request(data []byte) (DescribeTopicPartitions
 		topicNameLength := int8(data[offset])
 		offset++
 
-		topicName := string(data[offset : offset+int(topicNameLength)])
-		offset += int(topicNameLength)
+		topicName := string(data[offset : offset+int(topicNameLength-1)])
+		offset += int(topicNameLength - 1)
 
 		partitionIndex := int32(binary.BigEndian.Uint32(data[offset : offset+4]))
 		offset += 4
@@ -79,15 +79,21 @@ func ParseDescribeTopicPartitionsV0Request(data []byte) (DescribeTopicPartitions
 func GenerateDescribeTopicPartitionsV0Response(request types.RequestMessage) ([]byte, error) {
 	body := request.Body.(DescribeTopicPartitionsv0Request)
 
-	topic, err := GetTopicByName(strings.TrimSpace(string(body.Topics[0].Name)))
-	if err != nil {
-		topic.ErrorCode = 3
-		fmt.Println(err)
+	var topics []ResponseTopic
+
+	for _, topicToFind := range body.Topics {
+		topic, err := GetTopicByName(strings.TrimSpace(string(topicToFind.Name)))
+		if err != nil {
+			topic.ErrorCode = 3
+			fmt.Println(err)
+		}
+
+		topics = append(topics, topic)
 	}
 
 	res := DescribeTopicPartitionsv0Response{
 		ThrottleTimeMs: 0,
-		Topics:         types.CompactArray[ResponseTopic]{topic},
+		Topics:         types.CompactArray[ResponseTopic](topics),
 		NextCursor:     NextCursor{},
 		TAG_BUFFER:     0,
 	}
