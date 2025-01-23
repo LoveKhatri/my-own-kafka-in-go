@@ -30,6 +30,12 @@ var SupportedAPIs = map[int16]types.APIInfo{
 		MinVersion: 0,
 		MaxVersion: 0,
 	},
+	1: {
+		Name:       "Fetch",
+		ApiKey:     1,
+		MinVersion: 0,
+		MaxVersion: 16,
+	},
 }
 
 func ParseApiVersionV4Request(body []byte) (APIVersionV4Request, error) {
