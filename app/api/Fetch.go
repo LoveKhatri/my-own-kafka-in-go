@@ -165,13 +165,15 @@ func GenerateFetchResponse(request types.RequestMessage) ([]byte, error) {
 
 		topicRes.TopicId = topic.TopicId
 
+		// found := false
+
 		var partitions []FetchResponseTopicPartitions
 
 		for _, partition := range topic.Partitions {
 			var partitionRes FetchResponseTopicPartitions
 
 			partitionRes.PartitionIndex = partition.Partition
-			partitionRes.ErrorCode = 0
+			partitionRes.ErrorCode = types.ErrorCodes["UNKNOWN_TOPIC"].Code
 			partitionRes.HighWatermark = 0
 			partitionRes.LastStableOffset = 0
 			partitionRes.LogStartOffset = 0
@@ -226,69 +228,76 @@ func (req FetchV16Response) Serialize() []byte {
 	for _, topic := range req.Responses {
 		copy(body[offset:], topic.TopicId[:])
 		offset += 16
-		fmt.Println("TopicId: ", topic.TopicId, " Offset: ", offset, " Body: ", body[offset-16:offset])
+		fmt.Println("	TopicId: ", topic.TopicId, " Offset: ", offset, " Body: ", body[offset-16:offset])
 
 		partitionsLength := EncodeSignedVarint(len(topic.Partitions))
 		copy(body[offset:], partitionsLength)
 		offset += len(partitionsLength)
-		fmt.Println("PartitionsLength: ", len(topic.Partitions), " Offset: ", offset, " Body: ", body[offset-len(partitionsLength):offset])
+		fmt.Println("	PartitionsLength: ", len(topic.Partitions), " Offset: ", offset, " Body: ", body[offset-len(partitionsLength):offset])
 
 		for _, partition := range topic.Partitions {
 			binary.BigEndian.PutUint32(body[offset:], uint32(partition.PartitionIndex))
 			offset += 4
-			fmt.Println("PartitionIndex: ", partition.PartitionIndex, " Offset: ", offset, " Body: ", body[offset-4:offset])
+			fmt.Println("		PartitionIndex: ", partition.PartitionIndex, " Offset: ", offset, " Body: ", body[offset-4:offset])
 
 			binary.BigEndian.PutUint16(body[offset:], uint16(partition.ErrorCode))
 			offset += 2
-			fmt.Println("ErrorCode: ", partition.ErrorCode, " Offset: ", offset, " Body: ", body[offset-2:offset])
+			fmt.Println("		ErrorCode: ", partition.ErrorCode, " Offset: ", offset, " Body: ", body[offset-2:offset])
 
 			binary.BigEndian.PutUint64(body[offset:], uint64(partition.HighWatermark))
 			offset += 8
-			fmt.Println("HighWatermark: ", partition.HighWatermark, " Offset: ", offset, " Body: ", body[offset-8:offset])
+			fmt.Println("		HighWatermark: ", partition.HighWatermark, " Offset: ", offset, " Body: ", body[offset-8:offset])
 
 			binary.BigEndian.PutUint64(body[offset:], uint64(partition.LastStableOffset))
 			offset += 8
-			fmt.Println("LastStableOffset: ", partition.LastStableOffset, " Offset: ", offset, " Body: ", body[offset-8:offset])
+			fmt.Println("		LastStableOffset: ", partition.LastStableOffset, " Offset: ", offset, " Body: ", body[offset-8:offset])
 
 			binary.BigEndian.PutUint64(body[offset:], uint64(partition.LogStartOffset))
 			offset += 8
-			fmt.Println("LogStartOffset: ", partition.LogStartOffset, " Offset: ", offset, " Body: ", body[offset-8:offset])
+			fmt.Println("		LogStartOffset: ", partition.LogStartOffset, " Offset: ", offset, " Body: ", body[offset-8:offset])
 
 			abortedTransactionsLength := EncodeSignedVarint(len(partition.AbortedTransactions))
 			copy(body[offset:], abortedTransactionsLength)
 			offset += len(abortedTransactionsLength)
-			fmt.Println("AbortedTransactionsLength: ", len(partition.AbortedTransactions), " Offset: ", offset, " Body: ", body[offset-len(abortedTransactionsLength):offset])
+			fmt.Println("		AbortedTransactionsLength: ", len(partition.AbortedTransactions), " Offset: ", offset, " Body: ", body[offset-len(abortedTransactionsLength):offset])
 
 			for _, transaction := range partition.AbortedTransactions {
 				binary.BigEndian.PutUint64(body[offset:], uint64(transaction.ProducerId))
 				offset += 8
-				fmt.Println("ProducerId: ", transaction.ProducerId, " Offset: ", offset, " Body: ", body[offset-8:offset])
+				fmt.Println("			ProducerId: ", transaction.ProducerId, " Offset: ", offset, " Body: ", body[offset-8:offset])
 
 				binary.BigEndian.PutUint64(body[offset:], uint64(transaction.FirstOffset))
 				offset += 8
-				fmt.Println("FirstOffset: ", transaction.FirstOffset, " Offset: ", offset, " Body: ", body[offset-8:offset])
+				fmt.Println("			FirstOffset: ", transaction.FirstOffset, " Offset: ", offset, " Body: ", body[offset-8:offset])
 
 				body[offset] = transaction.TAG_BUFFER
 				offset++
-				fmt.Println("TAG_BUFFER: ", transaction.TAG_BUFFER, " Offset: ", offset, " Body: ", body[offset-1:offset])
+				fmt.Println("			TAG_BUFFER: ", transaction.TAG_BUFFER, " Offset: ", offset, " Body: ", body[offset-1:offset])
 			}
 
 			binary.BigEndian.PutUint32(body[offset:], uint32(partition.PreferredReadReplica))
 			offset += 4
-			fmt.Println("PreferredReadReplica: ", partition.PreferredReadReplica, " Offset: ", offset, " Body: ", body[offset-4:offset])
+			fmt.Println("		PreferredReadReplica: ", partition.PreferredReadReplica, " Offset: ", offset, " Body: ", body[offset-4:offset])
 
-			copy(body[offset:], partition.Records)
-			offset += len(partition.Records)
-			fmt.Println("Records: ", partition.Records, " Offset: ", offset, " Body: ", body[offset-len(partition.Records):offset])
+			recordsLength := EncodeSignedVarint(len(partition.Records))
+			copy(body[offset:], recordsLength)
+			offset += len(recordsLength)
+			fmt.Println("		RecordsLength: ", len(partition.Records), " Offset: ", offset, " Body: ", body[offset-len(recordsLength):offset])
+
+			if len(partition.Records) > 0 {
+				copy(body[offset:], partition.Records)
+				offset += len(partition.Records)
+				fmt.Println("		Records: ", partition.Records, " Offset: ", offset, " Body: ", body[offset-len(partition.Records):offset])
+			}
 
 			body[offset] = partition.TAG_BUFFER
 			offset++
-			fmt.Println("TAG_BUFFER: ", partition.TAG_BUFFER, " Offset: ", offset, " Body: ", body[offset-1:offset])
+			fmt.Println("		TAG_BUFFER: ", partition.TAG_BUFFER, " Offset: ", offset, " Body: ", body[offset-1:offset])
 		}
 
 		body[offset] = topic.TAG_BUFFER
 		offset++
-		fmt.Println("TAG_BUFFER: ", topic.TAG_BUFFER, " Offset: ", offset, " Body: ", body[offset-1:offset])
+		fmt.Println("	TAG_BUFFER: ", topic.TAG_BUFFER, " Offset: ", offset, " Body: ", body[offset-1:offset])
 	}
 
 	body[offset] = req.TAG_BUFFER

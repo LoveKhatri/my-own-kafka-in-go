@@ -7,6 +7,7 @@ import (
 var ErrorCodes = map[string]ResponseError{
 	"UNSUPPORTED_VERSION":        {35, "UNSUPPORTED_VERSION", false},
 	"UNKNOWN_TOPIC_OR_PARTITION": {3, "UNKNOWN_TOPIC_OR_PARTITION", true},
+	"UNKNOWN_TOPIC":              {100, "UNKNOWN_TOPIC", true},
 }
 
 type RequestHeader struct {
