@@ -165,7 +165,12 @@ func GenerateFetchResponse(request types.RequestMessage) ([]byte, error) {
 
 		topicRes.TopicId = topic.TopicId
 
-		// found := false
+		partitionErrorCode := int16(0)
+
+		found, _ := GetTopicById(topic.TopicId)
+		if found.ErrorCode != 0 {
+			partitionErrorCode = types.ErrorCodes["UNKNOWN_TOPIC"].Code
+		}
 
 		var partitions []FetchResponseTopicPartitions
 
@@ -173,7 +178,7 @@ func GenerateFetchResponse(request types.RequestMessage) ([]byte, error) {
 			var partitionRes FetchResponseTopicPartitions
 
 			partitionRes.PartitionIndex = partition.Partition
-			partitionRes.ErrorCode = types.ErrorCodes["UNKNOWN_TOPIC"].Code
+			partitionRes.ErrorCode = partitionErrorCode
 			partitionRes.HighWatermark = 0
 			partitionRes.LastStableOffset = 0
 			partitionRes.LogStartOffset = 0

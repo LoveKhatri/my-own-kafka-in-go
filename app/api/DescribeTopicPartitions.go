@@ -507,6 +507,73 @@ func GetTopicByName(name string) (ResponseTopic, error) {
 	return topic, nil
 }
 
+func GetTopicById(topicId uuid.UUID) (ResponseTopic, error) {
+	rawMetadata, err := ReadClusterMetadata(metadataFilePath)
+	if err != nil {
+		fmt.Println("Error reading cluster metadata: ", err)
+		return ResponseTopic{}, err
+	}
+
+	topic := ResponseTopic{
+		ErrorCode:                 3,
+		IsInternal:                false,
+		Partitions:                types.CompactArray[ResponsePartition]{},
+		TopicAuthorizedOperations: 3576,
+		TAG_BUFFER:                0,
+	}
+
+	batches, err := ParseClusterMetadata(rawMetadata)
+	if err != nil {
+		fmt.Println("Error parsing cluster metadata: ", err)
+		return topic, err
+	}
+
+	for _, batch := range batches {
+		for _, record := range batch.Records {
+			if record.Value != nil {
+				switch v := record.Value.(type) {
+				case *TopicRecordValue:
+					if v.TopicUUID == topicId {
+						topic.ErrorCode = 0
+						topic.Name = types.CompactNullableString(v.TopicName)
+						topic.TopicId = v.TopicUUID
+					}
+				}
+			}
+		}
+	}
+
+	if topic.ErrorCode == 0 {
+		var partitions []ResponsePartition
+		for _, batch := range batches {
+			for _, record := range batch.Records {
+				if record.Value != nil {
+					switch v := record.Value.(type) {
+					case *PartitionRecordValue:
+						if v.TopicUUID == topic.TopicId {
+							partition := ResponsePartition{
+								ErrorCode:      0,
+								PartitionIndex: v.PartitionId,
+								LeaderId:       v.Leader,
+								LeaderEpoch:    v.LeaderEpoch,
+								ReplicaNodes:   types.CompactArray[int32](v.ReplicaArray),
+								IsrNodes:       types.CompactArray[int32](v.InSyncReplicaArray),
+								TAG_BUFFER:     0,
+							}
+
+							partitions = append(partitions, partition)
+						}
+					}
+				}
+			}
+		}
+
+		topic.Partitions = types.CompactArray[ResponsePartition](partitions)
+	}
+
+	return topic, nil
+}
+
 func EncodeUnsignedVarint(value uint) []byte {
 	buf := make([]byte, binary.MaxVarintLen64)
 	length := binary.PutUvarint(buf, uint64(value))
