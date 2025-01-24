@@ -89,6 +89,11 @@ func readRequest(conn net.Conn) (*types.RequestMessage, error) {
 		if err != nil {
 			return nil, err
 		}
+	case 1:
+		body, err = api.ParseFetchV16Request(data[offset:])
+		if err != nil {
+			return nil, err
+		}
 	default:
 		return nil, fmt.Errorf("unsupported API key: %d", header.RequestApiKey)
 	}
@@ -149,6 +154,12 @@ func generateResponse(request types.RequestMessage) ([]byte, error) {
 
 	case 75:
 		apiResBytes, err = api.GenerateDescribeTopicPartitionsV0Response(request)
+		if err != nil {
+			return nil, err
+		}
+
+	case 1:
+		apiResBytes, err = api.GenerateFetchResponse(request)
 		if err != nil {
 			return nil, err
 		}
